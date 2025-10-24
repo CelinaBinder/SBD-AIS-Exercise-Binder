@@ -1,4 +1,4 @@
-package repository
+package solution
 
 import (
 	"ordersystem/model"
@@ -61,22 +61,4 @@ func (db *DatabaseHandler) AddOrder(order *model.Order) {
 	// add order to db.orders slice
 	order.CreatedAt = time.Now()
 	db.orders = append(db.orders, *order)
-}
-
-// for Exercise 3: Prepopulating the database in code
-
-func (db *DatabaseHandler) Prepopulate() {
-	// Prepopulate drinks
-	db.drinks = []model.Drink{
-		{Name: "Cola", Price: 3.30, Description: "cold fizzy drink"},
-		{Name: "Beer", Price: 4.00, Description: "bitter tasting drink"},
-		{Name: "Tea", Price: 3.20, Description: "herbal taste"},
-	}
-
-	// Prepopulate orders
-	db.orders = []model.Order{
-		{DrinkID: 1, CreatedAt: time.Now(), Amount: 1},
-		{DrinkID: 2, CreatedAt: time.Now(), Amount: 2},
-		{DrinkID: 3, CreatedAt: time.Now(), Amount: 1},
-	}
 }

@@ -27,6 +27,7 @@ var embeddedFrontend embed.FS
 // @contact.name		Your Name
 func main() {
 	db := repository.NewDatabaseHandler()
+	db.Prepopulate() // Exercise 3: Prepopulate
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 

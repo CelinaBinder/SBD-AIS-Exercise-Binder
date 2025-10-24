@@ -1,4 +1,4 @@
-package model
+package solution
 
 type Drink struct {
 	ID uint64 `json:"id"`
