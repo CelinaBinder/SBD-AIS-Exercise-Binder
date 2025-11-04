@@ -51,3 +51,8 @@ docker logs -f orderservice
 
 
 # to savely exit the Docker Containers use: docker stop container_name
+# start them again:
+## docker start orderservice
+## docker start orders-db
+
+# in web look at http://localhost:3000/
