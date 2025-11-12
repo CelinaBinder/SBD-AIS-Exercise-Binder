@@ -12,6 +12,21 @@ services:
     image: "traefik:v3.5.2"
     # todo add traefik config
     # todo only expose network web
+
+    container_name: traefik
+    command:
+      - "--api.insecure=true"                    # Enable the dashboard at :8080 (for local dev)
+      - "--providers.docker=true"                # Use Docker as provider
+      - "--providers.docker.exposedbydefault=false" # Only use explicitly labeled containers
+      - "--entrypoints.web.address=:80"          # Define the main HTTP entrypoint
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      # For Linux/macOS:
+      #- /var/run/docker.sock:/var/run/docker.sock:ro
+      # On Windows, use:
+      - //var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - web
 
@@ -27,17 +42,38 @@ services:
       - POSTGRES_PASSWORD=docker
       - POSTGRES_TCP_PORT=5432
       - DB_HOST=order-postgres
+    depends_on:
+      order-postgres:
+        condition: service_healthy
     networks:
       - intercom
       - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.orderservice.rule=Host(`orders.localhost`)"
+      - "traefik.http.routers.orderservice.entrypoints=web"
+      - "traefik.http.services.orderservice.loadbalancer.server.port=3000"
 
   sws:
     image: joseluisq/static-web-server:latest
     # todo add frontend folder as volume
+    container_name: sws
+    volumes:
+      - ./frontend:/public:ro                     # Serve files from ./frontend
+
     # todo setup environment variables to expose port 80 and serve the frontend folder
-    # todo add traefik labels
+    environment:
+      - SERVER_PORT=80                            # Expose port 80
+      - SERVER_ROOT=/public                       # Folder to serve
     networks:
       - web
+
+    # todo add traefik labels
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sws.rule=Host(`localhost`)"   # Changed from sws.localhost to localhost per assignment
+      - "traefik.http.routers.sws.entrypoints=web"
+      - "traefik.http.services.sws.loadbalancer.server.port=80"
 
   order-postgres:
     image: postgres:latest
@@ -45,9 +81,14 @@ services:
     networks:
       - intercom
     volumes:
-      - order_pg_vol:/var/lib/postgresql/data
+      - order_pg_vol:/var/lib/postgresql      # fixed data folder path
     ports:
       - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U docker -d order" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     environment:
       - POSTGRES_DB=order
       - POSTGRES_USER=docker
