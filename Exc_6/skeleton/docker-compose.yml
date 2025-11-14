@@ -7,6 +7,7 @@ networks:
 volumes:
   order_pg_vol:
   # todo
+  order_minio_vol:
 
 services:
   traefik:
@@ -86,3 +87,16 @@ services:
     # use the following commands: "server", "--address", ":8500", "/data"
     # map the data volume
     # set environment variables MINIO_ROOT_USER and MINIO_ROOT_PASSWORD
+
+    image: minio/minio:latest
+    command: [ "server", "--address", ":8500", "/data" ]
+    environment:
+      - MINIO_ROOT_USER=root
+      - MINIO_ROOT_PASSWORD=verysecret
+    volumes:
+      - order_minio_vol:/data
+    ports:
+      - "8500:8500"
+    networks:
+      - intercom
+    restart: unless-stopped
