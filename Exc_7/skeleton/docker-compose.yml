@@ -1,0 +1,148 @@
+version: "3.9"  # Specifies the Docker Compose file format version
+
+networks:  # Define custom networks for inter-service communication
+  web:  # Network for services exposed to the outside (frontend, Traefik)
+    driver: overlay  # Overlay network allows cross-node communication in swarm
+    attachable: true  # Allow standalone containers to connect
+  intercom:  # Network for internal service communication (backend services)
+    driver: overlay
+    attachable: true
+
+volumes:  # Define persistent volumes for data storage
+  order_pg_vol:  # Volume for PostgreSQL database
+  minio_vol:  # Volume for MinIO object storage
+
+secrets:  # Define Docker secrets for sensitive information
+  postgres_user:  # Secret for PostgreSQL username
+    file: docker/postgres_user_secret  # File containing the username
+  postgres_password:  # Secret for PostgreSQL password
+    file: docker/postgres_password_secret
+  s3_user:  # Secret for MinIO/S3 access key
+    file: docker/s3_user_secret
+  s3_password:  # Secret for MinIO/S3 secret key
+    file: docker/s3_password_secret
+
+services:  # Define all services in the stack
+  traefik:  # Traefik reverse proxy service
+    image: traefik:v3.6.1  # Traefik Docker image
+    command:  # Additional Traefik CLI options
+      - --api.insecure=false  # Disable insecure API
+      - --api.dashboard=true  # Enable Traefik dashboard
+      - --providers.swarm=true  # Use Docker Swarm provider
+      - --providers.docker.exposedbydefault=false  # Only expose services with labels
+      - --entrypoints.web.address=:80  # Define HTTP entrypoint on port 80
+      - --log.level=INFO  # Set log level to INFO
+    ports:  # Expose ports on the host
+      - target: 80  # Internal port
+        published: 80  # Host port
+        protocol: tcp  # TCP protocol
+        mode: ingress  # Ingress mode for swarm routing
+      - target: 8080  # Internal dashboard port
+        published: 8080  # Host port
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Allow Traefik to access Docker API
+    networks:
+      - web
+      - intercom
+    deploy:  # Swarm deployment configuration
+      replicas: 1  # Only one Traefik instance
+      placement:
+        constraints:
+          - node.role == manager  # Run only on manager nodes
+      labels:  # Traefik labels to configure routing
+        - traefik.enable=true  # Enable Traefik for this service
+        - traefik.http.routers.traefik-dashboard.rule=Host(`localhost`) && PathPrefix(`/dashboard`)  # URL rule
+        - traefik.http.routers.traefik-dashboard.entrypoints=web  # Use web entrypoint
+        - traefik.http.services.traefik-dashboard.loadbalancer.server.port=80  # Target port
+
+  frontend:  # Frontend web application
+    image: ghcr.io/ddibiasi/sbd-ais-exercise/frontend:1.0
+    networks:
+      - web
+    deploy:
+      mode: global  # Deploy one instance per node
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.frontend.rule=Host(`localhost`)  # Route requests to localhost
+        - traefik.http.routers.frontend.entrypoints=web
+        - traefik.http.services.frontend.loadbalancer.server.port=80
+      restart_policy:
+        condition: on-failure  # Restart only on failure
+
+  orderservice:  # Backend order processing service
+    image: ghcr.io/ddibiasi/sbd-ais-exercise/orderservice:1.0
+    command: [ "/app/ordersystem" ]  # Command to start the service
+    networks:
+      - web
+      - intercom
+    secrets:  # Attach secrets to the container
+      - postgres_user
+      - postgres_password
+      - s3_user
+      - s3_password
+    environment:  # Environment variables for service configuration
+      - DB_HOST=postgres  # Database hostname
+      - PGPORT=5432  # Database port
+      - POSTGRES_DB=order  # Database name
+      - POSTGRES_USER_FILE=/run/secrets/postgres_user  # Secret file for user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - S3_ENDPOINT=minio:8500  # S3/MinIO endpoint
+      - S3_ACCESS_KEY_ID_FILE=/run/secrets/s3_user
+      - S3_SECRET_ACCESS_KEY_FILE=/run/secrets/s3_password
+    deploy:
+      mode: global
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.orders.rule=Host(`orders.localhost`)  # Route requests to orders.localhost
+        - traefik.http.routers.orders.entrypoints=web
+        - traefik.http.services.orders.loadbalancer.server.port=3000  # Internal service port
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 10
+        window: 60s
+
+  postgres:  # PostgreSQL database service
+    image: postgres:18
+    volumes:
+      - order_pg_vol:/var/lib/postgresql  # Mount persistent volume
+    networks:
+      - intercom
+    secrets:
+      - postgres_user
+      - postgres_password
+    environment:
+      - POSTGRES_DB=order
+      - POSTGRES_USER_FILE=/run/secrets/postgres_user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - PGPORT=5432
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager  # Run only on manager nodes
+      restart_policy:
+        condition: on-failure
+
+  minio:  # MinIO object storage service
+    image: minio/minio:latest
+    command: [ "server", "--address", ":8500", "/data" ]  # Start MinIO server
+    volumes:
+      - minio_vol:/data  # Mount persistent storage
+    networks:
+      - intercom
+    secrets:
+      - s3_user
+      - s3_password
+    environment:
+      - MINIO_ROOT_USER_FILE=/run/secrets/s3_user  # Secret for root user
+      - MINIO_ROOT_PASSWORD_FILE=/run/secrets/s3_password
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
