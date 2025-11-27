@@ -1,6 +1,3 @@
-Here’s your Docker Swarm Deployment Documentation formatted as a clean **Markdown (.md)** file. You can click/open the card above to download it.
-
-
 # Docker Swarm Deployment Documentation
 
 ## 1. Introduction
